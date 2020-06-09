@@ -1,0 +1,41 @@
+apply plugin: 'java'
+apply plugin: 'idea'
+
+
+sourceCompatibility = 1.8
+version = '1.1'
+def title = 'InfluxBackendListenerClient'
+
+jar {
+    manifest {
+        attributes 'Implementation-Title': title,
+                   'Implementation-Version': version
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+	compileOnly group: 'org.apache.jmeter', name: 'ApacheJMeter', version: '3.2'
+	compileOnly group: 'org.apache.jmeter', name: 'ApacheJMeter_components', version: '3.2'
+	compileOnly group: 'org.apache.jmeter', name: 'ApacheJMeter_http', version: '3.2'
+	compile group: 'org.influxdb', name: 'influxdb-java', version: '2.7'
+}
+
+//create a single Jar with all dependencies
+task fatJar(type: Jar) {
+	manifest {
+		attributes 'Implementation-Title': title,
+			'Implementation-Version': version
+	}
+	baseName = 'InfluxBackendListenerClient'
+	from { configurations.compile.collect { it.isDirectory() ? it : zipTree(it) } }
+	with jar
+}
+
+task wrapper(type: Wrapper) {
+    gradleVersion = '2.12'
+
+}
