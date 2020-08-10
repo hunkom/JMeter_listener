@@ -153,11 +153,13 @@ public class InfluxBackendListenerClient extends AbstractBackendListenerClient i
 				double tps_rate = (double)Math.round(calc.getRate() * 1000.0D) / 1000.0D;
 				double kbytes_per_second = (((long)sampleResult.getBytes() + (long)sampleResult.getSentBytes()) / (sampleResult.getTime() * 1024.0D)) * 1000;
 				double networkRate = (double)Math.round(kbytes_per_second * 1000.0D) / 1000.0D;
+				long hit = (long)((currentTime - sampleResult.getTime())/1000);
 				if (!sampleResult.getSampleLabel().startsWith("Util_")) {
 				    Builder builder = Point.measurement(this.simulation)
 						    .time(currentTime, TimeUnit.MILLISECONDS)
 						    .addField("connect_time", sampleResult.getConnectTime())
 						    .addField("latency", sampleResult.getLatency())
+						    .addField("hit", hit)
 						    .addField("response_time", sampleResult.getTime())
 						    .addField("errorCount", (long)sampleResult.getErrorCount())
 						    .addField("status", isSuccessful ? "OK" : "KO")
@@ -200,6 +202,7 @@ public class InfluxBackendListenerClient extends AbstractBackendListenerClient i
 						httpMethod = "TRANSACTION";
 					}
 					String requestName = sampleResult.getSampleLabel();
+					String responseMessage = sampleResult.getResponseMessage();
 					String responseCode = sampleResult.getResponseCode();
 					if (responseCode.length()>3 || responseCode.length()==0){
 						responseCode = "NuN";
@@ -236,7 +239,7 @@ public class InfluxBackendListenerClient extends AbstractBackendListenerClient i
 							.append("Error message: ").append(errorMessage).append(delimeter)
 							.append("Request params: ").append(query).append(delimeter)
 							.append("Headers: ").append(headers).append(delimeter)
-							.append("Response body: ").append(response).append(delimeter)
+							.append("Response body: ").append(response).append(responseMessage).append(delimeter)
 							.append("\n").toString());
 				}
 
