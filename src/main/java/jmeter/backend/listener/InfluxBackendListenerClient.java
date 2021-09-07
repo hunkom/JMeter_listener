@@ -88,6 +88,11 @@ public class InfluxBackendListenerClient extends AbstractBackendListenerClient i
 	}
 
 	private void addVirtualUsersMetrics(int minActiveThreads, int meanActiveThreads, int maxActiveThreads, int startedThreads, int finishedThreads) {
+		try {
+			writeUserData(startedThreads, finishedThreads);
+		} catch (Exception e) {
+			LOGGER.error("Failed writing user data to file", e);
+		}
 		Builder builder = Point.measurement("users").time(System.currentTimeMillis(), TimeUnit.MILLISECONDS);
 		builder.addField("active", (long)startedThreads - (long) finishedThreads);
 		builder.addField("waiting", 0);
@@ -108,15 +113,20 @@ public class InfluxBackendListenerClient extends AbstractBackendListenerClient i
 		context.getParameterNamesIterator();
 
 		try {
-			writeToFile(sampleResults);
-		} catch (IOException e) {
-			e.printStackTrace();
+			writeErrors(sampleResults);
+		} catch (Exception e) {
+			LOGGER.error("Failed writing error data to file", e);
+		}
+
+		try {
+			writeRequestsData(sampleResults);
+		} catch (Exception e) {
+			LOGGER.error("Failed writing requests data to file", e);
 		}
 
 		while(true) {
 			SampleResult sampleResult;
 			String httpMethod;
-			String sampler_type;
 			boolean isSuccessful;
 			long currentTime;
 			do {
@@ -128,10 +138,8 @@ public class InfluxBackendListenerClient extends AbstractBackendListenerClient i
 					if (sampleResult instanceof HTTPSampleResult) {
 						HTTPSampleResult http_sample = (HTTPSampleResult) sampleResult;
 						httpMethod = http_sample.getHTTPMethod();
-						sampler_type = "REQUEST";
 					} else {
 						httpMethod = "TRANSACTION";
-						sampler_type = "TRANSACTION";
 					}
 					this.getUserMetrics().add(sampleResult);
 				} while((null == this.regexForSamplerList || !sampleResult.getSampleLabel().matches(this.regexForSamplerList)) && !this.samplersToFilter.contains(sampleResult.getSampleLabel()));
@@ -150,31 +158,19 @@ public class InfluxBackendListenerClient extends AbstractBackendListenerClient i
 				if (responseCode.length()>3 || responseCode.length()==0){
 					responseCode = "NuN";
 				}
-				double tps_rate = (double)Math.round(calc.getRate() * 1000.0D) / 1000.0D;
-				double kbytes_per_second = (((long)sampleResult.getBytes() + (long)sampleResult.getSentBytes()) / (sampleResult.getTime() * 1024.0D)) * 1000;
-				double networkRate = (double)Math.round(kbytes_per_second * 1000.0D) / 1000.0D;
-				long hit = (long)((currentTime - sampleResult.getTime())/1000);
 				if (!sampleResult.getSampleLabel().startsWith("Util_")) {
 				    Builder builder = Point.measurement(this.simulation)
 						    .time(currentTime, TimeUnit.MILLISECONDS)
-						    .addField("connect_time", sampleResult.getConnectTime())
-						    .addField("latency", sampleResult.getLatency())
-						    .addField("hit", hit)
 						    .addField("response_time", sampleResult.getTime())
-						    .addField("errorCount", (long)sampleResult.getErrorCount())
 						    .addField("status", isSuccessful ? "OK" : "KO")
 						    .addField("status_code", responseCode)
-						    .addField("tpsRate", tps_rate)
-						    .addField("networkRate", networkRate)
 						    .tag("user_id", sampleResult.getThreadName())
 						    .tag("method", httpMethod)
-						    .tag("sampler_type", sampler_type)
 						    .tag("request_name", sampleResult.getSampleLabel())
 						    .tag("env", this.envType)
 						    .tag("test_type", this.testType)
 						    .tag("build_id", this.buildId)
-						    .tag("lg_id", this.loadGenerator)
-						    .tag("simulation", this.simulation);
+						    .tag("lg_id", this.loadGenerator);
 				    builder = this.addTags(builder, this.tagsGlobal);
 				    builder = this.addTags(builder, this.tagsSamples);
 				    this.influxDB.write(this.influxDBConfig.getInfluxDatabase(), this.influxDBConfig.getInfluxRetentionPolicy(), builder.build());
@@ -183,7 +179,64 @@ public class InfluxBackendListenerClient extends AbstractBackendListenerClient i
 		}
 	}
 
-	private void writeToFile(List<SampleResult> sampleResults) throws IOException {
+	private void writeUserData(int startedThreads, int finishedThreads) throws IOException {
+		FileWriter fileWriter = new FileWriter("/tmp/users.csv", true);
+		try {
+			long currentTime = System.currentTimeMillis();
+			long active = (long)startedThreads - (long) finishedThreads;
+			fileWriter.write(new StringBuilder()
+					.append(currentTime).append(delimeter)
+					.append("users").append(delimeter)
+					.append(active).append(delimeter).append(0).append(delimeter)
+					.append(finishedThreads).append(delimeter).append(startedThreads).append(delimeter)
+					.append("\n").toString());
+		} catch(Exception e) {
+			e.printStackTrace();
+		}
+		fileWriter.close();
+	}
+
+	private void writeRequestsData(List<SampleResult> sampleResults) throws IOException {
+		Iterator sampleResultIterator = sampleResults.iterator();
+		FileWriter fileWriter = new FileWriter("/tmp/" + this.simulation + ".csv", true);
+		SampleResult sampleResult;
+
+		String httpMethod;
+		do {
+			try {
+				sampleResult = (SampleResult) sampleResultIterator.next();
+				if (!sampleResult.getSampleLabel().startsWith("Util_")) {
+					long currentTime = System.currentTimeMillis();
+					if (sampleResult instanceof HTTPSampleResult) {
+						HTTPSampleResult http_sample = (HTTPSampleResult) sampleResult;
+						httpMethod = http_sample.getHTTPMethod();
+					} else {
+						httpMethod = "TRANSACTION";
+					}
+					String requestName = sampleResult.getSampleLabel();
+					String responseCode = sampleResult.getResponseCode();
+					if (responseCode.length()>3 || responseCode.length()==0) {
+						responseCode = "NuN";
+					}
+
+					fileWriter.write(new StringBuilder()
+							.append(currentTime).append(delimeter)
+							.append(this.simulation).append(delimeter)
+							.append(requestName).append(delimeter)
+							.append(sampleResult.getTime()).append(delimeter).append(httpMethod).append(delimeter)
+							.append(sampleResult.isSuccessful() ? "OK" : "KO").append(delimeter)
+							.append(responseCode).append(delimeter).append(sampleResult.getThreadName()).append(delimeter)
+							.append("\n").toString());
+				}
+			} catch(Exception e) {
+				e.printStackTrace();
+			}
+		}
+		while (sampleResultIterator.hasNext());
+		fileWriter.close();
+	}
+
+	private void writeErrors(List<SampleResult> sampleResults) throws IOException {
 		Iterator sampleResultIterator = sampleResults.iterator();
 		FileWriter fileWriter = new FileWriter("/tmp/" + this.simulation + ".log", true);
 		SampleResult sampleResult;
@@ -312,8 +365,8 @@ public class InfluxBackendListenerClient extends AbstractBackendListenerClient i
 	public Arguments getDefaultParameters() {
 		Arguments arguments = new Arguments();
 		arguments.addArgument(KEY_SIMULATION, "${__P(test_name,test)}");
-		arguments.addArgument(KEY_ENV_TYPE, "${__P(env.type,demo)}");
-		arguments.addArgument(KEY_TEST_TYPE, "${__P(test.type,demo)}");
+		arguments.addArgument(KEY_ENV_TYPE, "${__P(env_type,demo)}");
+		arguments.addArgument(KEY_TEST_TYPE, "${__P(test_type,demo)}");
 		arguments.addArgument(KEY_LG_NAME, "${__P(lg.id,${__machineName()})}");
 		arguments.addArgument(KEY_BUILD, "${__P(build.id,1)}");
 		arguments.addArgument(KEY_PERIODICITY, "${__P(periodicity, debug)}");
@@ -343,8 +396,8 @@ public class InfluxBackendListenerClient extends AbstractBackendListenerClient i
 
 	@Override
 	public void setupTest(BackendListenerContext context) throws Exception {
-		testType = context.getParameter(KEY_TEST_TYPE, "${__P(test.type,demo)}");
-		envType = context.getParameter(KEY_ENV_TYPE, "${__P(env.type,demo)}");
+		testType = context.getParameter(KEY_TEST_TYPE, "${__P(test_type,demo)}");
+		envType = context.getParameter(KEY_ENV_TYPE, "${__P(env_type,demo)}");
 		projectName = context.getParameter(KEY_PROJECT_NAME, "${__P(project.id,demo)}");
 		loadGenerator = context.getParameter(KEY_LG_NAME, "${__P(lg.id,load_generator");
 		buildId = context.getParameter(KEY_BUILD, "${__P(build.id,1)}");
