@@ -164,11 +164,9 @@ public class InfluxBackendListenerClient extends AbstractBackendListenerClient i
 						    .addField("response_time", sampleResult.getTime())
 						    .addField("status", isSuccessful ? "OK" : "KO")
 						    .addField("status_code", responseCode)
+						    .addField("method", httpMethod)
+						    .addField("request_name", sampleResult.getSampleLabel())
 						    .tag("user_id", sampleResult.getThreadName())
-						    .tag("method", httpMethod)
-						    .tag("request_name", sampleResult.getSampleLabel())
-						    .tag("env", this.envType)
-						    .tag("test_type", this.testType)
 						    .tag("build_id", this.buildId)
 						    .tag("lg_id", this.loadGenerator);
 				    builder = this.addTags(builder, this.tagsGlobal);
